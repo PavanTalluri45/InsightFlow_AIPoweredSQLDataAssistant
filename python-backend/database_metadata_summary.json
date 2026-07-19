@@ -1,0 +1,165 @@
+{
+  "database_name": "postgres",
+  "total_tables": 1,
+  "tables": {
+    "retail_sales": {
+      "row_count": 1000,
+      "column_count": 10,
+      "columns": [
+        {
+          "name": "transaction_id",
+          "data_type": "integer",
+          "nullable": false,
+          "default": null,
+          "is_primary": true,
+          "type_classification": "numeric",
+          "null_count": 0,
+          "distinct_count": 1000,
+          "min": 1.0,
+          "max": 1000.0,
+          "average": 500.5,
+          "sample_values": []
+        },
+        {
+          "name": "date",
+          "data_type": "date",
+          "nullable": false,
+          "default": null,
+          "is_primary": false,
+          "type_classification": "date",
+          "null_count": 0,
+          "distinct_count": 345,
+          "min": "2023-01-01",
+          "max": "2024-01-01",
+          "average": null,
+          "sample_values": []
+        },
+        {
+          "name": "customer_id",
+          "data_type": "character varying",
+          "nullable": false,
+          "default": null,
+          "is_primary": false,
+          "type_classification": "text",
+          "null_count": 0,
+          "distinct_count": 1000,
+          "min": null,
+          "max": null,
+          "average": null,
+          "sample_values": []
+        },
+        {
+          "name": "gender",
+          "data_type": "character varying",
+          "nullable": false,
+          "default": null,
+          "is_primary": false,
+          "type_classification": "categorical",
+          "null_count": 0,
+          "distinct_count": 2,
+          "min": null,
+          "max": null,
+          "average": null,
+          "sample_values": [
+            "Female",
+            "Male"
+          ]
+        },
+        {
+          "name": "age",
+          "data_type": "integer",
+          "nullable": false,
+          "default": null,
+          "is_primary": false,
+          "type_classification": "numeric",
+          "null_count": 0,
+          "distinct_count": 47,
+          "min": 18.0,
+          "max": 64.0,
+          "average": 41.392,
+          "sample_values": []
+        },
+        {
+          "name": "product_category",
+          "data_type": "character varying",
+          "nullable": false,
+          "default": null,
+          "is_primary": false,
+          "type_classification": "categorical",
+          "null_count": 0,
+          "distinct_count": 3,
+          "min": null,
+          "max": null,
+          "average": null,
+          "sample_values": [
+            "Beauty",
+            "Clothing",
+            "Electronics"
+          ]
+        },
+        {
+          "name": "quantity",
+          "data_type": "integer",
+          "nullable": false,
+          "default": null,
+          "is_primary": false,
+          "type_classification": "numeric",
+          "null_count": 0,
+          "distinct_count": 4,
+          "min": 1.0,
+          "max": 4.0,
+          "average": 2.514,
+          "sample_values": []
+        },
+        {
+          "name": "price_per_unit",
+          "data_type": "numeric",
+          "nullable": false,
+          "default": null,
+          "is_primary": false,
+          "type_classification": "numeric",
+          "null_count": 0,
+          "distinct_count": 5,
+          "min": 25.0,
+          "max": 500.0,
+          "average": 179.89,
+          "sample_values": []
+        },
+        {
+          "name": "total_amount",
+          "data_type": "numeric",
+          "nullable": false,
+          "default": null,
+          "is_primary": false,
+          "type_classification": "numeric",
+          "null_count": 0,
+          "distinct_count": 18,
+          "min": 25.0,
+          "max": 2000.0,
+          "average": 456.0,
+          "sample_values": []
+        },
+        {
+          "name": "created_at",
+          "data_type": "timestamp with time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP",
+          "is_primary": false,
+          "type_classification": "date",
+          "null_count": 0,
+          "distinct_count": 2,
+          "min": "2026-07-08 10:57:35.975272+00:00",
+          "max": "2026-07-08 10:58:57.909298+00:00",
+          "average": null,
+          "sample_values": []
+        }
+      ],
+      "relationships": {
+        "primary_keys": [
+          "transaction_id"
+        ],
+        "foreign_keys": []
+      }
+    }
+  }
+}
