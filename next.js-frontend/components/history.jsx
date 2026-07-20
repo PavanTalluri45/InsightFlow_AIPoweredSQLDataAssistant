@@ -17,77 +17,74 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { useSidebar } from "@/components/ui/sidebar"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Spinner } from "@/components/ui/spinner"
 import {
     Tooltip,
     TooltipContent,
     TooltipProvider,
     TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useConversation } from "@/context/ConversationContext"
+import { toast } from "sonner"
 
-const mockConversations = [
-    { id: "1", title: "Optimizing Slow JOIN Queries on the Orders Table" },
-    { id: "2", title: "Monthly Revenue Breakdown by Region" },
-    { id: "3", title: "Customer Churn Analysis" },
-    { id: "4", title: "Building a Recursive CTE for the Org Chart" },
-    { id: "5", title: "Comparing Q3 vs Q4 Sales Trends" },
-    { id: "6", title: "Deduplicating Customer Records" },
-    { id: "7", title: "Explain This Query Execution Plan" },
-    { id: "8", title: "Top 10 Products by Revenue" },
-    { id: "9", title: "Inventory Levels Below Reorder Threshold" },
-    { id: "10", title: "Weekly Active Users Trend" },
-    { id: "11", title: "Comparing Q3 vs Q4 Sales Trends" },
-    { id: "12", title: "Deduplicating Customer Records" },
-    { id: "13", title: "Explain This Query Execution Plan" },
-    { id: "14", title: "Top 10 Products by Revenue" },
-    { id: "15", title: "Inventory Levels Below Reorder Threshold" },
-    { id: "16", title: "Weekly Active Users Trend" },
-]
-
-export const History = React.memo(function History({
-    conversations: initialConversations = mockConversations,
-}) {
+export const History = React.memo(function History() {
     const { state, isMobile } = useSidebar()
-    const [conversations, setConversations] = React.useState(() =>
-        initialConversations.map((c) => ({ isPinned: false, ...c }))
-    )
-    const [activeId, setActiveId] = React.useState(null)
+    const {
+        conversations,
+        currentConversationId: activeId,
+        selectConversation: setActiveId,
+        pinConversation: handlePin,
+        unpinConversation: handleUnpin,
+        deleteConversation: handleConfirmDeleteDirect,
+        isHistoryLoading,
+    } = useConversation()
+
     const [deleteTarget, setDeleteTarget] = React.useState(null)
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = React.useState(false)
+    const [isDeleting, setIsDeleting] = React.useState(false)
     const isCollapsed = state === "collapsed" && !isMobile
 
     const pinnedConversations = React.useMemo(
-        () => conversations.filter((c) => c.isPinned),
+        () => conversations.filter((c) => c.is_pinned),
         [conversations]
     )
     const historyConversations = React.useMemo(
-        () => conversations.filter((c) => !c.isPinned),
+        () => conversations.filter((c) => !c.is_pinned),
         [conversations]
     )
-
-    const handlePin = React.useCallback((id) => {
-        setConversations((prev) =>
-            prev.map((c) => (c.id === id ? { ...c, isPinned: true } : c))
-        )
-    }, [])
-
-    const handleUnpin = React.useCallback((id) => {
-        setConversations((prev) =>
-            prev.map((c) => (c.id === id ? { ...c, isPinned: false } : c))
-        )
-    }, [])
 
     const handleRequestDelete = React.useCallback((conversation) => {
         setDeleteTarget(conversation)
         setIsDeleteDialogOpen(true)
     }, [])
 
-    const handleConfirmDelete = React.useCallback(() => {
-        setConversations((prev) => prev.filter((c) => c.id !== deleteTarget.id))
-        if (deleteTarget.id === activeId) {
-            setActiveId(null)
+    const handleConfirmDelete = React.useCallback(async () => {
+        if (deleteTarget) {
+            setIsDeleting(true)
+            try {
+                await handleConfirmDeleteDirect(deleteTarget.id)
+                setIsDeleteDialogOpen(false)
+            } catch (err) {
+                console.error("Failed to delete conversation:", err)
+                toast.error("Failed to delete conversation. Please try again.")
+            } finally {
+                setIsDeleting(false)
+            }
         }
-        setIsDeleteDialogOpen(false)
-    }, [deleteTarget, activeId])
+    }, [deleteTarget, handleConfirmDeleteDirect])
+
+    if (isHistoryLoading) {
+        return (
+            <div className="flex flex-col gap-3 px-3 py-4">
+                <Skeleton className="h-3 w-16 bg-muted/60 mb-1" />
+                <Skeleton className="h-9 w-full bg-muted/40" />
+                <Skeleton className="h-9 w-full bg-muted/40" />
+                <Skeleton className="h-9 w-full bg-muted/40" />
+                <Skeleton className="h-9 w-full bg-muted/40" />
+            </div>
+        )
+    }
 
     if (conversations.length === 0) {
         return null
@@ -150,9 +147,20 @@ export const History = React.memo(function History({
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction variant="destructive" onClick={handleConfirmDelete}>
-                            Delete
+                        <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            variant="destructive"
+                            onClick={handleConfirmDelete}
+                            disabled={isDeleting}
+                        >
+                            {isDeleting ? (
+                                <span className="flex items-center gap-2">
+                                    <Spinner className="size-3.5" />
+                                    Deleting
+                                </span>
+                            ) : (
+                                "Delete"
+                            )}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
