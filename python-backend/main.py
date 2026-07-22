@@ -33,7 +33,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",
+        "https://insight-flow-beryl-seven.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
