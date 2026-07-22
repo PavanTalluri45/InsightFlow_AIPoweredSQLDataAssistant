@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useContext, useEffect, useState, useCallback } from "react"
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from "react"
 import { useAuth } from "@/context/AuthContext"
 import {
     createConversation as apiCreateConversation,
@@ -16,6 +16,12 @@ const ConversationContext = createContext(null)
 
 export function ConversationProvider({ children }) {
     const { user, loading: authLoading } = useAuth()
+    // Derive a stable primitive from the user object. Supabase re-emits
+    // onAuthStateChange (e.g. on tab focus / visibility change) with a
+    // *new* user object even for the same signed-in user, which would
+    // otherwise retrigger every effect/callback keyed on `user`.
+    const userId = user?.id ?? null
+
     const [conversations, setConversations] = useState([])
     const [currentConversationId, setCurrentConversationId] = useState(null)
     const [messages, setMessages] = useState([])
@@ -23,30 +29,40 @@ export function ConversationProvider({ children }) {
     const [isHistoryLoading, setIsHistoryLoading] = useState(false)
     const [isMessagesLoading, setIsMessagesLoading] = useState(false)
 
+    // Tracks whether we've successfully loaded the list at least once for
+    // the current user, so background/duplicate refetches (tab refocus,
+    // token refresh, etc.) update the list silently instead of flashing
+    // the skeleton again.
+    const hasLoadedConversationsRef = useRef(false)
+
     // Load conversation list when authenticated user changes
     const loadConversations = useCallback(async () => {
-        if (!user) return
-        setIsHistoryLoading(true)
+        if (!userId) return
+        if (!hasLoadedConversationsRef.current) {
+            setIsHistoryLoading(true)
+        }
         try {
             const list = await apiGetConversations()
             setConversations(list)
         } catch (err) {
             console.error("Failed to load conversations:", err)
         } finally {
+            hasLoadedConversationsRef.current = true
             setIsHistoryLoading(false)
         }
-    }, [user])
+    }, [userId])
 
     useEffect(() => {
-        if (user && !authLoading) {
+        if (userId && !authLoading) {
             loadConversations()
-        } else if (!user) {
+        } else if (!userId) {
             // Reset state on sign-out
             setConversations([])
             setCurrentConversationId(null)
             setMessages([])
+            hasLoadedConversationsRef.current = false
         }
-    }, [user, authLoading, loadConversations])
+    }, [userId, authLoading, loadConversations])
 
     // Select a conversation and fetch its messages
     const selectConversation = useCallback(async (id) => {

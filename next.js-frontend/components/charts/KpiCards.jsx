@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils"
 export default function KpiCards({ data, visualization }) {
   const { title, x_axis, y_axis } = visualization ?? {}
 
-  if (!data?.length || !x_axis || !y_axis) {
+  if (!data?.length || !y_axis) {
     return null
   }
 
@@ -27,11 +27,13 @@ export default function KpiCards({ data, visualization }) {
             key={index}
             className="rounded-lg border border-border/50 bg-background p-4 shadow-xs"
           >
-            <p className="text-xs text-muted-foreground">{row[x_axis]}</p>
+            <p className="text-xs text-muted-foreground">
+              {x_axis && row[x_axis] ? String(row[x_axis]) : y_axis}
+            </p>
             <p className="mt-1 font-mono text-2xl font-semibold tabular-nums text-foreground">
               {typeof row[y_axis] === "number"
                 ? row[y_axis].toLocaleString()
-                : String(row[y_axis])}
+                : String(row[y_axis] ?? "")}
             </p>
           </div>
         ))}

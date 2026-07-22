@@ -1,211 +1,258 @@
-from typing import Any, Dict, List, Optional, Set, Tuple
-from app.ai.visualization.intent_mapper import (
-    CATEGORICAL,
-    DATETIME,
-    NUMERIC,
-    classify_columns,
-)
+from typing import Any, Dict, List, Optional
+from app.ai.visualization.intent_mapper import analyze_column_semantics
 
-# Which of x_axis / y_axis a given chart type actually needs populated
-# in order to be considered valid. "table" needs neither. "kpi" only
-# needs a value (stored in y_axis; x_axis is intentionally left None
-# for a single-value chart - there's nothing to plot it against).
-_REQUIRED_AXES: Dict[str, Tuple[str, ...]] = {
-    "bar_chart": ("x_axis", "y_axis"),
-    "line_chart": ("x_axis", "y_axis"),
-    "pie_chart": ("x_axis", "y_axis"),
-    "scatter_chart": ("x_axis", "y_axis"),
-    "kpi": ("y_axis",),
-    "table": (),
-}
+
+def table_presentation_response(reason: str, goal: str = "LIST_RECORDS") -> Dict[str, Any]:
+    """
+    Return the standard contract when presentation is TABLE.
+    All chart attributes return null.
+    """
+    return {
+        "presentation": "table",
+        "goal": goal,
+        "chart_type": None,
+        "title": None,
+        "x_axis": None,
+        "y_axis": None,
+        "series": None,
+        "legend": None,
+        "stacked": None,
+        "horizontal": None,
+        "sort": None,
+        "reason": reason or "Query results are presented in tabular format.",
+    }
+
+
+def disabled_visualization_response(reason: str) -> Dict[str, Any]:
+    """Legacy helper fallback mapping to table presentation."""
+    return table_presentation_response(reason=reason, goal="LIST_RECORDS")
 
 
 def _default_title(question: str) -> str:
-    """Derive a fallback title from the question when none is supplied."""
+    """Derive a human-readable title from the user question."""
     cleaned = question.strip().rstrip("?").strip()
     if not cleaned:
         return "Query Result"
     return cleaned[0].upper() + cleaned[1:]
 
 
-def _first_column(
-    column_types: Dict[str, str],
-    wanted_type: str,
-    exclude: Optional[Set[str]] = None,
-) -> Optional[str]:
-    """
-    Return the first column name (in row order) classified as
-    `wanted_type`, skipping any column names in `exclude`.
-
-    Returns None if no matching column exists - callers treat that as
-    "this chart type can't be satisfied by this data".
-    """
-    exclude = exclude or set()
-    for name, ctype in column_types.items():
-        if ctype == wanted_type and name not in exclude:
-            return name
-    return None
-
-
-def _select_bar_axes(column_types: Dict[str, str]) -> Tuple[Optional[str], Optional[str]]:
-    """Bar chart: X = categorical, Y = numeric."""
-    x_axis = _first_column(column_types, CATEGORICAL)
-    y_axis = _first_column(column_types, NUMERIC)
-    return x_axis, y_axis
-
-
-def _select_line_axes(column_types: Dict[str, str]) -> Tuple[Optional[str], Optional[str]]:
-    """
-    Line chart: X = datetime, or "ordered categorical" as a fallback.
-
-    Note: a categorical column's ordering can't actually be verified
-    from its Python type alone (e.g. a month-name column vs. a
-    genuinely unordered category column look identical to
-    classify_columns()). Falling back to the first categorical column
-    when no datetime column exists is a deliberate heuristic, not a
-    guarantee of true chronological order - worth eyeballing the
-    result for time-series questions where the schema has no real
-    date/timestamp column.
-    """
-    x_axis = _first_column(column_types, DATETIME)
-    if x_axis is None:
-        x_axis = _first_column(column_types, CATEGORICAL)
-    y_axis = _first_column(column_types, NUMERIC)
-    return x_axis, y_axis
-
-
-def _select_pie_axes(column_types: Dict[str, str]) -> Tuple[Optional[str], Optional[str]]:
-    """Pie chart: labels = categorical, values = numeric (stored as x_axis/y_axis)."""
-    labels = _first_column(column_types, CATEGORICAL)
-    values = _first_column(column_types, NUMERIC)
-    return labels, values
-
-
-def _select_scatter_axes(column_types: Dict[str, str]) -> Tuple[Optional[str], Optional[str]]:
-    """Scatter chart: X = numeric, Y = a *different* numeric column."""
-    x_axis = _first_column(column_types, NUMERIC)
-    exclude = {x_axis} if x_axis else None
-    y_axis = _first_column(column_types, NUMERIC, exclude=exclude)
-    return x_axis, y_axis
-
-
-def _select_kpi_axis(column_types: Dict[str, str]) -> Tuple[Optional[str], Optional[str]]:
-    """KPI: a single numeric value. x_axis is intentionally always None."""
-    value_column = _first_column(column_types, NUMERIC)
-    return None, value_column
-
-
-_AXIS_SELECTORS = {
-    "bar_chart": _select_bar_axes,
-    "line_chart": _select_line_axes,
-    "pie_chart": _select_pie_axes,
-    "scatter_chart": _select_scatter_axes,
-    "kpi": _select_kpi_axis,
-}
-
-
-def _select_axes_for_chart(
-    chart_type: str, rows: List[Dict[str, Any]]
-) -> Tuple[Optional[str], Optional[str]]:
-    """
-    Look up the axis selector for `chart_type` and run it against the
-    rows' classified column types. "table" (or any chart type without
-    a registered selector) has no axes by definition.
-    """
-    selector = _AXIS_SELECTORS.get(chart_type)
-    if selector is None:
-        return None, None
-
-    column_types = classify_columns(rows)
-    return selector(column_types)
-
-
-def _missing_required_axes(
-    chart_type: str, x_axis: Optional[str], y_axis: Optional[str]
-) -> List[str]:
-    """Return which of this chart type's required axes came back None."""
-    axis_values = {"x_axis": x_axis, "y_axis": y_axis}
-    required = _REQUIRED_AXES.get(chart_type, ())
-    return [name for name in required if axis_values[name] is None]
-
-
 def build_visualization_response(
     question: str,
-    intent_result: Dict[str, Any],
-    chart_type: str,
+    goal_result: Dict[str, Any],
     rows: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
     """
-    Assemble the visualization object the frontend will consume.
+    Visualization Planner (Deterministic Python Engine).
 
-    Args:
-        question: The original natural language question.
-        intent_result: The dict returned by
-            visualization_selector.select_visualization() - expected
-            to contain "required", "intent", and "reason".
-        chart_type: The chart type returned by
-            intent_mapper.map_intent_to_chart(intent_result["intent"]).
-        rows: The SQL result rows, used to classify columns and pick
-            axes.
-
-    Returns:
-        dict: {
-            "required": bool,
-            "intent": str,
-            "chart_type": str,
-            "title": str,
-            "x_axis": Optional[str],
-            "y_axis": Optional[str],
-            "reason": str,
-        }
-
-        If Gemini's classified chart type can't actually be satisfied
-        by the returned columns (missing categorical/numeric/datetime
-        column of the required kind), this downgrades to
-        chart_type="table", required=False, with both axes None -
-        rather than shipping a chart with a missing or semantically
-        wrong axis.
+    Determines presentation type (TABLE, KPI, CHART), chart selection, axes,
+    grouping/series, legends, orientation, and sorting from:
+      - Question semantics
+      - Analytical Goal (Gemini output)
+      - SQL result data types, cardinality, and column structures
     """
-    required = bool(intent_result.get("required", False))
-    intent = intent_result.get("intent") or "table"
-    reason = intent_result.get("reason", "")
+    goal = goal_result.get("goal", "UNKNOWN")
+    reason = goal_result.get("reason", "")
+
+    if not rows:
+        return table_presentation_response(
+            reason=reason or "No query results to display.",
+            goal=goal,
+        )
+
+    # 1. Direct Table Presentation for Record Listings
+    if goal == "LIST_RECORDS":
+        return table_presentation_response(
+            reason=reason or "Detailed record listing requested by user.",
+            goal="LIST_RECORDS",
+        )
+
     title = _default_title(question)
+    semantics = analyze_column_semantics(rows)
 
-    if not required or not rows:
+    datetime_cols = semantics["datetime_cols"]
+    numeric_cols = semantics["numeric_cols"]
+    categorical_cols = semantics["categorical_cols"]
+    cardinality = semantics["cardinality"]
+
+    q_lower = question.lower()
+    is_top_n_question = any(kw in q_lower for kw in ["top", "highest", "best", "rank"])
+    is_bottom_n_question = any(kw in q_lower for kw in ["bottom", "lowest", "worst"])
+
+    # 2. KPI / Single Value Presentation
+    if goal == "SHOW_SINGLE_VALUE" or (
+        len(rows) == 1 and len(numeric_cols) >= 1 and not categorical_cols and not datetime_cols
+    ):
+        y_col = numeric_cols[0] if numeric_cols else (list(rows[0].keys())[0] if rows else None)
+        if not y_col:
+            return table_presentation_response("No metric column available for KPI card.", goal=goal)
         return {
-            "required": False,
-            "intent": intent,
-            "chart_type": "table",
+            "presentation": "kpi",
+            "goal": "SHOW_SINGLE_VALUE",
+            "chart_type": "kpi",
             "title": title,
             "x_axis": None,
-            "y_axis": None,
-            "reason": reason,
+            "y_axis": y_col,
+            "series": None,
+            "legend": False,
+            "stacked": False,
+            "horizontal": False,
+            "sort": None,
+            "reason": reason or "Single aggregate metric presented as a KPI card.",
         }
 
-    x_axis, y_axis = _select_axes_for_chart(chart_type, rows)
-    missing = _missing_required_axes(chart_type, x_axis, y_axis)
+    # 3. Time Series / Trend Presentation (Line Chart)
+    if goal in ("SHOW_TREND", "SHOW_TIME_SERIES") or (len(datetime_cols) > 0 and len(numeric_cols) >= 1):
+        x_col = datetime_cols[0] if datetime_cols else (categorical_cols[0] if categorical_cols else None)
+        y_col = numeric_cols[0] if numeric_cols else None
 
-    if missing:
+        if x_col and y_col:
+            series_col = None
+            legend = False
+            if categorical_cols and categorical_cols[0] != x_col:
+                series_col = categorical_cols[0]
+                legend = True
+            elif len(categorical_cols) >= 2:
+                series_col = categorical_cols[1]
+                legend = True
+
+            return {
+                "presentation": "chart",
+                "goal": goal if goal != "UNKNOWN" else "SHOW_TREND",
+                "chart_type": "line_chart",
+                "title": title,
+                "x_axis": x_col,
+                "y_axis": y_col,
+                "series": series_col,
+                "legend": legend,
+                "stacked": False,
+                "horizontal": False,
+                "sort": "asc",
+                "reason": reason or "Temporal trend analysis presented as a line chart.",
+            }
+
+    # 4. Composition Presentation (Pie Chart vs Horizontal Bar Chart)
+    if goal == "SHOW_COMPOSITION":
+        x_col = categorical_cols[0] if categorical_cols else None
+        y_col = numeric_cols[0] if numeric_cols else None
+
+        if x_col and y_col:
+            x_cardinality = cardinality.get(x_col, 0)
+            if x_cardinality <= 7:
+                return {
+                    "presentation": "chart",
+                    "goal": "SHOW_COMPOSITION",
+                    "chart_type": "pie_chart",
+                    "title": title,
+                    "x_axis": x_col,
+                    "y_axis": y_col,
+                    "series": None,
+                    "legend": True,
+                    "stacked": False,
+                    "horizontal": False,
+                    "sort": "desc",
+                    "reason": reason or "Part-to-whole share breakdown presented as a pie chart.",
+                }
+            else:
+                return {
+                    "presentation": "chart",
+                    "goal": "SHOW_COMPOSITION",
+                    "chart_type": "bar_chart",
+                    "title": title,
+                    "x_axis": x_col,
+                    "y_axis": y_col,
+                    "series": None,
+                    "legend": False,
+                    "stacked": False,
+                    "horizontal": True,
+                    "sort": "desc",
+                    "reason": f"{reason} High cardinality composition presented as a horizontal bar chart.",
+                }
+
+    # 5. Relationship / Correlation Presentation (Scatter Chart)
+    if goal == "SHOW_RELATIONSHIP":
+        if len(numeric_cols) >= 2:
+            return {
+                "presentation": "chart",
+                "goal": "SHOW_RELATIONSHIP",
+                "chart_type": "scatter_chart",
+                "title": title,
+                "x_axis": numeric_cols[0],
+                "y_axis": numeric_cols[1],
+                "series": None,
+                "legend": False,
+                "stacked": False,
+                "horizontal": False,
+                "sort": None,
+                "reason": reason or "Relationship between numeric metrics presented as a scatter chart.",
+            }
+
+    # 6. Ranking / Top N / Bottom N Presentation (Horizontal Bar Chart)
+    if goal in ("SHOW_RANKING", "SHOW_TOP_N", "SHOW_BOTTOM_N") or is_top_n_question or is_bottom_n_question:
+        x_col = categorical_cols[0] if categorical_cols else (datetime_cols[0] if datetime_cols else None)
+        y_col = numeric_cols[0] if numeric_cols else None
+
+        if x_col and y_col:
+            sort_order = "asc" if (goal == "SHOW_BOTTOM_N" or is_bottom_n_question) else "desc"
+            return {
+                "presentation": "chart",
+                "goal": goal if goal != "UNKNOWN" else "SHOW_RANKING",
+                "chart_type": "bar_chart",
+                "title": title,
+                "x_axis": x_col,
+                "y_axis": y_col,
+                "series": None,
+                "legend": False,
+                "stacked": False,
+                "horizontal": True,
+                "sort": sort_order,
+                "reason": reason or "Ranked comparison presented as a horizontal bar chart.",
+            }
+
+    # 7. Category Comparison / Distribution Presentation (Bar Chart)
+    y_col = numeric_cols[0] if numeric_cols else None
+
+    # Grouped Bar Chart (2 categorical columns)
+    if len(categorical_cols) >= 2 and y_col:
+        x_col = categorical_cols[0]
+        series_col = categorical_cols[1]
         return {
-            "required": False,
-            "intent": intent,
-            "chart_type": "table",
+            "presentation": "chart",
+            "goal": goal if goal != "UNKNOWN" else "COMPARE_VALUES",
+            "chart_type": "bar_chart",
             "title": title,
-            "x_axis": None,
-            "y_axis": None,
-            "reason": (
-                f"{reason} A {chart_type.replace('_', ' ')} needs a "
-                f"{'/'.join(missing)} the returned columns don't have, "
-                "so a table is shown instead."
-            ).strip(),
+            "x_axis": x_col,
+            "y_axis": y_col,
+            "series": series_col,
+            "legend": True,
+            "stacked": False,
+            "horizontal": False,
+            "sort": None,
+            "reason": reason or "Multi-dimensional comparison presented as a grouped bar chart.",
         }
 
-    return {
-        "required": True,
-        "intent": intent,
-        "chart_type": chart_type,
-        "title": title,
-        "x_axis": x_axis,
-        "y_axis": y_axis,
-        "reason": reason,
-    }
+    # Standard Bar Chart (1 dimension + 1 measure)
+    x_col = categorical_cols[0] if categorical_cols else (datetime_cols[0] if datetime_cols else None)
+    if x_col and y_col:
+        x_cardinality = cardinality.get(x_col, 0)
+        horizontal = x_cardinality > 8
+
+        return {
+            "presentation": "chart",
+            "goal": goal if goal != "UNKNOWN" else "COMPARE_VALUES",
+            "chart_type": "bar_chart",
+            "title": title,
+            "x_axis": x_col,
+            "y_axis": y_col,
+            "series": None,
+            "legend": False,
+            "stacked": False,
+            "horizontal": horizontal,
+            "sort": None,
+            "reason": reason or "Category comparison presented as a bar chart.",
+        }
+
+    # Fallback to Table if numeric and dimension columns cannot be mapped to a chart
+    return table_presentation_response(
+        reason=f"{reason} Query result layout is best suited for tabular inspection.",
+        goal=goal,
+    )

@@ -8,18 +8,36 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart"
 
-// Renders visualization.chart_type === "area_chart".
 export default function AreaChart({ data, visualization }) {
-  const { title, x_axis, y_axis } = visualization ?? {}
+  const { title, x_axis, y_axis, sort } = visualization ?? {}
 
-  if (!data?.length || !x_axis || !y_axis) {
+  if (!data?.length) {
     return null
   }
 
+  const keys = Object.keys(data[0])
+  const effectiveX = x_axis || keys[0]
+  const effectiveY = y_axis || keys[1] || keys[0]
+
+  const cleanY = String(effectiveY).replace(/[^a-zA-Z0-9_-]/g, "_")
+  const colorVar = "var(--chart-1)"
+
+  // Sort data if specified
+  const sortedData = [...data]
+  if (sort === "asc") {
+    sortedData.sort((a, b) => (a[effectiveX] > b[effectiveX] ? 1 : -1))
+  } else if (sort === "desc") {
+    sortedData.sort((a, b) => (a[effectiveX] < b[effectiveX] ? 1 : -1))
+  }
+
   const chartConfig = {
-    [y_axis]: {
-      label: y_axis,
-      color: "var(--chart-1)",
+    [effectiveY]: {
+      label: String(effectiveY),
+      color: colorVar,
+    },
+    [cleanY]: {
+      label: String(effectiveY),
+      color: colorVar,
     },
   }
 
@@ -29,24 +47,24 @@ export default function AreaChart({ data, visualization }) {
         <p className="mb-2 text-sm font-medium text-foreground">{title}</p>
       )}
       <ChartContainer config={chartConfig} className="h-[300px] w-full">
-        <RechartsPrimitive.AreaChart data={data} margin={{ left: 4, right: 4 }}>
+        <RechartsPrimitive.AreaChart data={sortedData} margin={{ left: 4, right: 4 }}>
           <defs>
-            <linearGradient id={`fill-${y_axis}`} x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id={`fill-${cleanY}`} x1="0" y1="0" x2="0" y2="1">
               <stop
                 offset="5%"
-                stopColor={`var(--color-${y_axis})`}
+                stopColor={`var(--color-${cleanY}, ${colorVar})`}
                 stopOpacity={0.6}
               />
               <stop
                 offset="95%"
-                stopColor={`var(--color-${y_axis})`}
+                stopColor={`var(--color-${cleanY}, ${colorVar})`}
                 stopOpacity={0.05}
               />
             </linearGradient>
           </defs>
           <RechartsPrimitive.CartesianGrid vertical={false} />
           <RechartsPrimitive.XAxis
-            dataKey={x_axis}
+            dataKey={effectiveX}
             tickLine={false}
             axisLine={false}
             tickMargin={8}
@@ -55,9 +73,10 @@ export default function AreaChart({ data, visualization }) {
           <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
           <RechartsPrimitive.Area
             type="monotone"
-            dataKey={y_axis}
-            stroke={`var(--color-${y_axis})`}
-            fill={`url(#fill-${y_axis})`}
+            dataKey={effectiveY}
+            name={effectiveY}
+            stroke={`var(--color-${cleanY}, ${colorVar})`}
+            fill={`url(#fill-${cleanY})`}
             strokeWidth={2}
           />
         </RechartsPrimitive.AreaChart>

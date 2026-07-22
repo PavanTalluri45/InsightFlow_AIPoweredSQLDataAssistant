@@ -15,21 +15,34 @@ const CHART_COMPONENTS = {
   pie_chart: PieChart,
   area_chart: AreaChart,
   scatter_chart: ScatterChart,
+  kpi: KpiCards,
   kpi_cards: KpiCards,
   table: DataTable,
 }
 
-
 export default function ChartRenderer({ data, visualization }) {
-  if (!visualization?.required) {
+  if (!visualization) {
     return <EmptyChart />
   }
 
-  const ChartComponent = CHART_COMPONENTS[visualization.chart_type]
+  const { presentation, chart_type } = visualization
+
+  // Presentation 1: TABLE
+  if (presentation === "table" || chart_type === "table") {
+    return <DataTable data={data} visualization={visualization} />
+  }
+
+  // Presentation 2: KPI
+  if (presentation === "kpi" || chart_type === "kpi" || chart_type === "kpi_cards") {
+    return <KpiCards data={data} visualization={visualization} />
+  }
+
+  // Presentation 3: CHART
+  const ChartComponent = CHART_COMPONENTS[chart_type]
 
   if (!ChartComponent) {
     return (
-      <EmptyChart reason={`Unsupported chart type: "${visualization.chart_type}"`} />
+      <EmptyChart reason={visualization.reason || `Unsupported chart type: "${chart_type}"`} />
     )
   }
 

@@ -1,15 +1,13 @@
 import re
 from typing import List, Optional, TypedDict
+from app.core.config import DEFAULT_MAX_SQL_LENGTH, SUPPORTED_TABLES_SET
 
 # ----------------------------------------------------------------------
 # Constants
 # ----------------------------------------------------------------------
 
-# Rule 6: default maximum SQL length, configurable per call.
-DEFAULT_MAX_SQL_LENGTH = 5000
-
-# Rule 5: the only table generated SQL is permitted to reference.
-ALLOWED_TABLES = {"retail_sales"}
+# Rule 5: the tables generated SQL is permitted to reference.
+ALLOWED_TABLES = SUPPORTED_TABLES_SET
 
 # Rule 2: statement types that are never allowed, even though some of
 # these (e.g. CREATE, GRANT) don't start a statement with "SELECT" and

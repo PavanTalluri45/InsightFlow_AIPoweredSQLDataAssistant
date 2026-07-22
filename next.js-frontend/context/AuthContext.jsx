@@ -10,12 +10,27 @@ export function AuthProvider({ children }) {
     const [loading, setLoading] = useState(true);
     const supabase = createClient();
 
+    // Only swaps the `user` object in state when the underlying user id
+    // actually changes. Supabase re-emits onAuthStateChange (e.g. on tab
+    // visibility/focus, token refresh) with a freshly deserialized user
+    // object even when it's the same signed-in user — without this guard,
+    // every consumer of `user` across the app (via useEffect/useCallback
+    // deps) would re-run unnecessarily on every tab refocus.
+    const applyUser = (nextUser) => {
+        setUser((prevUser) => {
+            if (prevUser?.id === (nextUser?.id ?? null)) {
+                return prevUser;
+            }
+            return nextUser ?? null;
+        });
+    };
+
     useEffect(() => {
         const getInitialUser = async () => {
             const {
                 data: { user },
             } = await supabase.auth.getUser();
-            setUser(user);
+            applyUser(user);
             setLoading(false);
         };
 
@@ -24,7 +39,7 @@ export function AuthProvider({ children }) {
         const {
             data: { subscription },
         } = supabase.auth.onAuthStateChange((_event, session) => {
-            setUser(session?.user ?? null);
+            applyUser(session?.user ?? null);
             setLoading(false);
         });
 

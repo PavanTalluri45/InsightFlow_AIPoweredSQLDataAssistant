@@ -78,8 +78,10 @@ ${colorConfig
 const color =
   itemConfig.theme?.[theme] ??
   itemConfig.color
-return color ? `  --color-${key}: ${color};` : null
+const cleanKey = String(key).replace(/[^a-zA-Z0-9_-]/g, "_")
+return color ? `  --color-${cleanKey}: ${color};` : null
 })
+.filter(Boolean)
 .join("\n")}
 }
 `)

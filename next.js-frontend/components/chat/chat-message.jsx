@@ -52,7 +52,7 @@ export function ChatMessage({ role, content, timestamp, data, visualization }) {
                     {content}
                 </div>
 
-                {!isUser && visualization?.required && (
+                {!isUser && (visualization?.presentation || visualization?.required) && (
                     <div className="w-full overflow-hidden rounded-xl border border-border bg-card p-4">
                         <ChartRenderer data={data} visualization={visualization} />
                     </div>

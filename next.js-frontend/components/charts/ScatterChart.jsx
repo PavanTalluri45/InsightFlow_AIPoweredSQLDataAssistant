@@ -8,19 +8,28 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart"
 
-// Renders visualization.chart_type === "scatter_chart".
-// Both axes are treated as numeric, per Recharts' ScatterChart contract.
 export default function ScatterChart({ data, visualization }) {
   const { title, x_axis, y_axis } = visualization ?? {}
 
-  if (!data?.length || !x_axis || !y_axis) {
+  if (!data?.length) {
     return null
   }
 
+  const keys = Object.keys(data[0])
+  const effectiveX = x_axis || keys[0]
+  const effectiveY = y_axis || keys[1] || keys[0]
+
+  const cleanY = String(effectiveY).replace(/[^a-zA-Z0-9_-]/g, "_")
+  const colorVar = "var(--chart-1)"
+
   const chartConfig = {
-    [y_axis]: {
-      label: y_axis,
-      color: "var(--chart-1)",
+    [effectiveY]: {
+      label: String(effectiveY),
+      color: colorVar,
+    },
+    [cleanY]: {
+      label: String(effectiveY),
+      color: colorVar,
     },
   }
 
@@ -33,23 +42,23 @@ export default function ScatterChart({ data, visualization }) {
         <RechartsPrimitive.ScatterChart margin={{ left: 4, right: 4 }}>
           <RechartsPrimitive.CartesianGrid />
           <RechartsPrimitive.XAxis
-            dataKey={x_axis}
+            dataKey={effectiveX}
             type="number"
-            name={x_axis}
+            name={effectiveX}
             tickLine={false}
             axisLine={false}
             tickMargin={8}
           />
           <RechartsPrimitive.YAxis
-            dataKey={y_axis}
+            dataKey={effectiveY}
             type="number"
-            name={y_axis}
+            name={effectiveY}
             tickLine={false}
             axisLine={false}
             tickMargin={8}
           />
           <ChartTooltip cursor={{ strokeDasharray: "3 3" }} content={<ChartTooltipContent />} />
-          <RechartsPrimitive.Scatter data={data} fill={`var(--color-${y_axis})`} />
+          <RechartsPrimitive.Scatter data={data} fill={`var(--color-${cleanY}, ${colorVar})`} />
         </RechartsPrimitive.ScatterChart>
       </ChartContainer>
     </div>

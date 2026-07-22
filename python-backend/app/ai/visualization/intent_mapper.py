@@ -1,9 +1,10 @@
 import datetime
+import re
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 # ----------------------------------------------------------------------
-# Intent -> chart type 
+# Constants & Classification Types
 # ----------------------------------------------------------------------
 
 INTENT_TO_CHART: Dict[str, str] = {
@@ -16,58 +17,47 @@ INTENT_TO_CHART: Dict[str, str] = {
     "table": "table",
 }
 
-# Rule: any intent this module doesn't recognize maps to a plain
-# table rather than raising - an unknown intent should degrade
-# gracefully, not break the pipeline.
 DEFAULT_CHART_TYPE = "table"
-
-
-def map_intent_to_chart(intent: str) -> str:
-    """
-    Convert a visualization intent into a frontend chart type.
-
-    Args:
-        intent: One of the allowed intents produced by
-            visualization_selector.select_visualization().
-
-    Returns:
-        str: The mapped chart type (e.g. "line_chart"), or "table" if
-            the intent is missing from INTENT_TO_CHART.
-    """
-    return INTENT_TO_CHART.get(intent, DEFAULT_CHART_TYPE)
-
-
-# ----------------------------------------------------------------------
-# Column type classification (new)
-# ----------------------------------------------------------------------
 
 NUMERIC = "numeric"
 DATETIME = "datetime"
 CATEGORICAL = "categorical"
 
+MONTH_NAMES = {
+    "january", "february", "march", "april", "may", "june",
+    "july", "august", "september", "october", "november", "december",
+    "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "oct", "nov", "dec"
+}
 
-def _classify_single_value(value: Any) -> Optional[str]:
-    """
-    Classify one non-null value's Python type.
 
-    Returns:
-        Optional[str]: "numeric" | "datetime" | "categorical", or None
-            if the value itself is None (so callers can skip nulls
-            when deciding a column's dominant type).
+def map_intent_to_chart(intent: str) -> str:
+    """Convert a visualization intent into a frontend chart type."""
+    return INTENT_TO_CHART.get(intent, DEFAULT_CHART_TYPE)
 
-    Notes:
-        - Booleans are deliberately treated as categorical, not
-          numeric, even though `bool` is a subclass of `int` in
-          Python - a True/False column should never become a chart's
-          numeric axis.
-        - Decimal is included because psycopg2/SQLAlchemy return
-          NUMERIC/DECIMAL Postgres columns as Python Decimal, not
-          float.
-        - datetime.datetime is checked before datetime.date only for
-          clarity; datetime.datetime is itself a subclass of
-          datetime.date, so a single isinstance check against
-          datetime.date already covers both.
-    """
+
+def _is_date_like_string(val_str: str, col_name: str = "") -> bool:
+    """Check if a string represents a date, timestamp, month, or year."""
+    cleaned = val_str.strip()
+    if not cleaned:
+        return False
+    
+    # ISO date/timestamp format YYYY-MM-DD or YYYY-MM
+    if re.match(r"^\d{4}-\d{2}(-\d{2})?([T\s]\d{2}:\d{2}:\d{2})?", cleaned):
+        return True
+    
+    # Month name check
+    if cleaned.lower() in MONTH_NAMES:
+        return True
+    
+    # Year format YYYY when column name suggests year
+    if re.match(r"^\d{4}$", cleaned) and any(k in col_name.lower() for k in ["year", "yr"]):
+        return True
+
+    return False
+
+
+def _classify_single_value(value: Any, col_name: str = "") -> Optional[str]:
+    """Classify a single non-null value into DATETIME, NUMERIC, or CATEGORICAL."""
     if value is None:
         return None
     if isinstance(value, bool):
@@ -76,36 +66,15 @@ def _classify_single_value(value: Any) -> Optional[str]:
         return NUMERIC
     if isinstance(value, (datetime.date, datetime.datetime)):
         return DATETIME
+    if isinstance(value, str) and _is_date_like_string(value, col_name):
+        return DATETIME
     return CATEGORICAL
 
 
 def classify_columns(rows: List[Dict[str, Any]]) -> Dict[str, str]:
     """
-    Classify every column in `rows` as "numeric", "datetime", or
-    "categorical", based on the actual Python types the SQL Executor
-    returned - never by guessing from column names, and never by
-    asking Gemini.
-
-    A column's type is decided by its first non-null value, on the
-    assumption that a column is type-consistent across rows (true for
-    SQL result sets, since every value in a column comes from the same
-    typed database column). A column that is NULL in every row falls
-    back to "categorical" as a safe default, since it can't be used as
-    a numeric or datetime axis regardless.
-
-    I'm fairly confident this matches standard psycopg2/SQLAlchemy
-    behavior (NUMERIC -> Decimal, DATE/TIMESTAMP -> date/datetime,
-    everything textual -> str), but the exact Python type returned per
-    Postgres column type is ultimately driver-dependent - worth a
-    quick sanity check against your actual query results if a column
-    ever gets classified unexpectedly.
-
-    Args:
-        rows: The rows returned by the SQL Executor (list of dicts).
-
-    Returns:
-        Dict[str, str]: column name -> "numeric" | "datetime" |
-            "categorical", in the same column order as the first row.
+    Classify every column in rows as 'numeric', 'datetime', or 'categorical'.
+    Analyzes Python data types and string date formats across returned rows.
     """
     if not rows:
         return {}
@@ -113,13 +82,52 @@ def classify_columns(rows: List[Dict[str, Any]]) -> Dict[str, str]:
     columns = list(rows[0].keys())
     column_types: Dict[str, str] = {}
 
-    for column in columns:
+    for col in columns:
         resolved_type = CATEGORICAL
         for row in rows:
-            value_type = _classify_single_value(row.get(column))
-            if value_type is not None:
-                resolved_type = value_type
+            val_type = _classify_single_value(row.get(col), col)
+            if val_type is not None:
+                resolved_type = val_type
                 break
-        column_types[column] = resolved_type
+        column_types[col] = resolved_type
 
     return column_types
+
+
+def analyze_column_semantics(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Extract detailed semantic properties from query results:
+    - column types
+    - distinct value counts (cardinality)
+    - separated column lists (datetime_cols, numeric_cols, categorical_cols)
+    """
+    if not rows:
+        return {
+            "column_types": {},
+            "cardinality": {},
+            "datetime_cols": [],
+            "numeric_cols": [],
+            "categorical_cols": [],
+            "total_rows": 0,
+        }
+
+    col_types = classify_columns(rows)
+    columns = list(rows[0].keys())
+    cardinality: Dict[str, int] = {}
+
+    for col in columns:
+        distinct_vals = {row.get(col) for row in rows if row.get(col) is not None}
+        cardinality[col] = len(distinct_vals)
+
+    datetime_cols = [c for c in columns if col_types[c] == DATETIME]
+    numeric_cols = [c for c in columns if col_types[c] == NUMERIC]
+    categorical_cols = [c for c in columns if col_types[c] == CATEGORICAL]
+
+    return {
+        "column_types": col_types,
+        "cardinality": cardinality,
+        "datetime_cols": datetime_cols,
+        "numeric_cols": numeric_cols,
+        "categorical_cols": categorical_cols,
+        "total_rows": len(rows),
+    }

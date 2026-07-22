@@ -7,35 +7,31 @@ from app.ai.prompts.visualization_prompt import visualization_prompt
 
 logger = logging.getLogger(__name__)
 
-# The only intents Gemini is allowed to return. Kept here (not in
-# intent_mapper.py) because this is where the AI response is
-# validated - intent_mapper.py only maps already-trusted values.
-ALLOWED_INTENTS = {
-    "trend",
-    "comparison",
-    "composition",
-    "distribution",
-    "correlation",
-    "single_value",
-    "table",
+# The only goals Gemini is allowed to return.
+ALLOWED_GOALS = {
+    "LIST_RECORDS",
+    "COMPARE_VALUES",
+    "SHOW_TREND",
+    "SHOW_TIME_SERIES",
+    "SHOW_COMPOSITION",
+    "SHOW_DISTRIBUTION",
+    "SHOW_RELATIONSHIP",
+    "SHOW_SINGLE_VALUE",
+    "SHOW_RANKING",
+    "SHOW_TOP_N",
+    "SHOW_BOTTOM_N",
+    "UNKNOWN",
 }
 
-# Returned whenever Gemini's response can't be trusted for any reason
-# (bad JSON, missing fields, unknown intent, or an exception talking
-# to Gemini at all). Deliberately conservative: no visualization.
+# Fallback when Gemini output is invalid or unreachable
 _FALLBACK_RESULT: Dict[str, Any] = {
-    "required": False,
-    "intent": "table",
-    "reason": "Visualization could not be determined; defaulting to a table view.",
+    "goal": "UNKNOWN",
+    "reason": "Analytical goal could not be determined; fallback applied.",
 }
 
 
 def _strip_markdown_fences(text: str) -> str:
-    """
-    Remove ```json / ``` fences Gemini occasionally adds despite being
-    told not to. Mirrors the defensive parsing already used for SQL
-    generation elsewhere in this pipeline.
-    """
+    """Remove ```json / ``` fences Gemini occasionally adds."""
     cleaned = text.strip()
     if cleaned.startswith("```"):
         cleaned = cleaned.strip("`")
@@ -44,13 +40,8 @@ def _strip_markdown_fences(text: str) -> str:
     return cleaned.strip()
 
 
-def _parse_intent_json(raw_text: str) -> Dict[str, Any]:
-    """
-    Parse Gemini's raw text response into a dict.
-
-    Raises:
-        ValueError: if the text is not valid JSON.
-    """
+def _parse_goal_json(raw_text: str) -> Dict[str, Any]:
+    """Parse Gemini's raw text response into a dict."""
     cleaned = _strip_markdown_fences(raw_text)
     try:
         return json.loads(cleaned)
@@ -58,57 +49,44 @@ def _parse_intent_json(raw_text: str) -> Dict[str, Any]:
         raise ValueError(f"Gemini did not return valid JSON: {e}") from e
 
 
-def _validate_intent_result(data: Dict[str, Any]) -> Dict[str, Any]:
+def _validate_goal_result(data: Any) -> Dict[str, Any]:
     """
-    Validate the parsed JSON has the required shape and an allowed
-    intent, and return a normalized dict with exactly the three
-    expected keys.
-
-    Raises:
-        ValueError: if a required field is missing or malformed, or
-            the intent is not one of the allowed values.
+    Validate that parsed JSON has a valid 'goal' field from ALLOWED_GOALS.
+    Handles case where Gemini returns a string or non-dict object.
     """
-    if "required" not in data or not isinstance(data["required"], bool):
-        raise ValueError("Missing or invalid 'required' field.")
+    if isinstance(data, str):
+        goal_candidate = data.strip().upper()
+        if goal_candidate in ALLOWED_GOALS:
+            return {"goal": goal_candidate, "reason": "Analytical goal classified by AI."}
+        raise ValueError(f"String output is not an allowed goal: {data!r}")
 
-    if "intent" not in data or data["intent"] not in ALLOWED_INTENTS:
-        raise ValueError(f"Missing or invalid 'intent' field: {data.get('intent')!r}")
+    if not isinstance(data, dict):
+        raise ValueError(f"Parsed JSON is not a dictionary: {data!r}")
+
+    goal = data.get("goal")
+    if not goal or goal not in ALLOWED_GOALS:
+        raise ValueError(f"Missing or invalid 'goal' field: {goal!r}")
 
     return {
-        "required": data["required"],
-        "intent": data["intent"],
+        "goal": goal,
         "reason": data.get("reason", ""),
     }
 
 
 def select_visualization(question: str, rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
-    Ask Gemini to classify the visualization intent for a question's
-    SQL result.
-
-    This function never raises. Any failure - Gemini being
-    unreachable, returning malformed JSON, missing fields, or an
-    intent outside the allowed set - is caught and converted into the
-    safe fallback result, so a visualization hiccup never breaks the
-    rest of the chat pipeline.
-
-    Args:
-        question: The original natural language question.
-        rows: The rows returned by the SQL Executor (list of dicts).
-              An empty list short-circuits straight to the fallback,
-              since there is nothing to visualize.
+    Ask Gemini to classify the analytical goal for a user's question and SQL result.
 
     Returns:
-        dict: {"required": bool, "intent": str, "reason": str}
+        dict: {"goal": str, "reason": str}
     """
     if not rows:
         return {
-            "required": False,
-            "intent": "table",
-            "reason": "No rows were returned, so there is nothing to visualize.",
+            "goal": "LIST_RECORDS",
+            "reason": "No rows were returned, default to tabular record view.",
         }
 
-    formatted_data = json.dumps(rows, indent=2, default=str)
+    formatted_data = json.dumps(rows[:10], indent=2, default=str)  # Send up to 10 sample rows for efficiency
 
     formatted_prompt = visualization_prompt.invoke(
         {
@@ -120,8 +98,8 @@ def select_visualization(question: str, rows: List[Dict[str, Any]]) -> Dict[str,
 
     try:
         raw_response = generate_response(prompt_text)
-        parsed = _parse_intent_json(raw_response)
-        return _validate_intent_result(parsed)
+        parsed = _parse_goal_json(raw_response)
+        return _validate_goal_result(parsed)
     except Exception as e:
-        logger.warning("Visualization intent selection failed, defaulting to table: %s", e)
-        return dict(_FALLBACK_RESULT)
+        logger.warning("Analytical goal selection failed, defaulting to UNKNOWN: %s", e)
+        return dict(_FALLBACK_RESULT)

@@ -8,7 +8,10 @@ from app.ai.sql_validator import validate_sql
 from app.ai.result_explainer import explain_results
 from app.ai.visualization.visualization_selector import select_visualization
 from app.ai.visualization.intent_mapper import map_intent_to_chart
-from app.ai.visualization.visualization_response_builder import build_visualization_response
+from app.ai.visualization.visualization_response_builder import (
+    build_visualization_response,
+    disabled_visualization_response,
+)
 from app.response.response_builder import BackendResponse, build_error_response, build_response
 from database.sql_executor import execute_query
 from database.schema_provider import get_retail_sales_schema
@@ -31,38 +34,20 @@ def _select_visualization_safe(
     rows: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
     """
-    Run the full Visualization Decision Layer (intent classification ->
-    chart mapping -> response building) as one unit.
-
-    select_visualization() already falls back internally if Gemini
-    fails, but this wrapper is a second safety net around the pure
-    Python steps (map_intent_to_chart, build_visualization_response) so
-    that, even in the case of an unexpected bug, a visualization
-    failure degrades to a plain table recommendation instead of ever
-    failing the whole chat response - the same "this step never
-    breaks the pipeline" guarantee every other step in this file
-    provides.
+    Run the full Visualization Layer:
+    1. Analytical Goal Classifier (Gemini)
+    2. Visualization Planner (Deterministic Python Engine)
     """
     try:
-        intent_result = select_visualization(question=question, rows=rows)
-        chart_type = map_intent_to_chart(intent_result.get("intent", "table"))
+        goal_result = select_visualization(question=question, rows=rows)
         return build_visualization_response(
             question=question,
-            intent_result=intent_result,
-            chart_type=chart_type,
+            goal_result=goal_result,
             rows=rows,
         )
     except Exception as e:
         logger.error("Visualization selection failed: %s", e)
-        return {
-            "required": False,
-            "intent": "table",
-            "chart_type": "table",
-            "title": question.strip() or "Query Result",
-            "x_axis": None,
-            "y_axis": None,
-            "reason": "Visualization could not be determined.",
-        }
+        return disabled_visualization_response("Visualization selection failed due to an error.")
 
 
 # ----------------------------------------------------------------------
@@ -210,7 +195,7 @@ def _step(step_number: int, label: str) -> None:
 
 
 def _step_done() -> None:
-    print("\u2714 Completed\n")
+    print("[OK] Completed\n")
 
 
 def _format_value_for_display(val: Any) -> Any:
@@ -230,17 +215,22 @@ def _format_value_for_display(val: Any) -> Any:
 
 
 def _print_visualization(visualization: Optional[Dict[str, Any]]) -> None:
-    """Pretty-print the visualization recommendation block, if present."""
+    """Pretty-print the visualization metadata block."""
     if not visualization:
         return
 
     print("\nVisualization:")
-    print(f"  Required: {visualization.get('required')}")
-    print(f"  Visualization Intent: {visualization.get('intent')}")
+    print(f"  Presentation: {visualization.get('presentation')}")
+    print(f"  Analytical Goal: {visualization.get('goal')}")
     print(f"  Chart Type: {visualization.get('chart_type')}")
     print(f"  Chart Title: {visualization.get('title')}")
     print(f"  X-Axis: {visualization.get('x_axis')}")
     print(f"  Y-Axis: {visualization.get('y_axis')}")
+    print(f"  Series: {visualization.get('series')}")
+    print(f"  Legend: {visualization.get('legend')}")
+    print(f"  Stacked: {visualization.get('stacked')}")
+    print(f"  Horizontal: {visualization.get('horizontal')}")
+    print(f"  Sort: {visualization.get('sort')}")
     print(f"  Reason: {visualization.get('reason')}")
 
 

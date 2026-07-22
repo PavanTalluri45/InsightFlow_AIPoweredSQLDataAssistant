@@ -2,6 +2,7 @@ import logging
 from typing import List, Dict, Any
 from sqlalchemy import text
 from database.connection import engine
+from app.core.config import SUPPORTED_TABLES
 
 logger = logging.getLogger("database_explorer")
 
@@ -34,21 +35,23 @@ class DatabaseExplorer:
 
     def get_table_names(self) -> List[str]:
         """
-        Retrieves all user-defined table names in the 'public' schema.
+        Retrieves user-defined table names in the 'public' schema
+        that match the supported tables allow-list (SUPPORTED_TABLES).
         
         Queries the SQL-standard 'information_schema.tables' catalog view.
-        Filtes for schema = 'public' and type = 'BASE TABLE' to avoid system tables and views.
+        Filters for schema = 'public', type = 'BASE TABLE', and table_name IN (SUPPORTED_TABLES).
         """
         query = text("""
             SELECT table_name 
             FROM information_schema.tables 
             WHERE table_schema = 'public' 
               AND table_type = 'BASE TABLE'
+              AND table_name = ANY(:allowed_tables)
             ORDER BY table_name;
         """)
         try:
             with self.engine.connect() as conn:
-                result = conn.execute(query)
+                result = conn.execute(query, {"allowed_tables": SUPPORTED_TABLES})
                 return [row[0] for row in result]
         except Exception as e:
             logger.error(f"Failed to fetch table list from catalogs: {str(e)}")

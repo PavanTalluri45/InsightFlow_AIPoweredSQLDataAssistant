@@ -46,11 +46,11 @@ export const History = React.memo(function History() {
     const isCollapsed = state === "collapsed" && !isMobile
 
     const pinnedConversations = React.useMemo(
-        () => conversations.filter((c) => c.is_pinned),
+        () => conversations.filter((c) => c.is_pinned && !c.isPlaceholder),
         [conversations]
     )
     const historyConversations = React.useMemo(
-        () => conversations.filter((c) => !c.is_pinned),
+        () => conversations.filter((c) => !c.is_pinned && !c.isPlaceholder),
         [conversations]
     )
 
@@ -87,7 +87,15 @@ export const History = React.memo(function History() {
     }
 
     if (conversations.length === 0) {
-        return null
+        if (isCollapsed) {
+            return null
+        }
+
+        return (
+            <div className="flex items-center justify-center px-3 py-4">
+                <p className="text-sm text-muted-foreground">No chats yet</p>
+            </div>
+        )
     }
 
     if (isCollapsed) {

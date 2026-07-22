@@ -46,8 +46,9 @@ back to stale data.
 from typing import Any, Dict
 
 from app.core.cache import MetadataCache
+from app.core.config import PRIMARY_TABLE
 
-TABLE_NAME = "retail_sales"
+TABLE_NAME = PRIMARY_TABLE
 
 
 def _format_schema_text(table_name: str, table_data: Dict[str, Any]) -> str:
