@@ -1,6 +1,8 @@
 import { createClient } from "@/utils/supabase/server";
 import { ConversationService } from "@/services/conversation.service";
 
+const PYTHON_BACKEND_URL = process.env.PYTHON_BACKEND_URL;
+
 export async function GET(request) {
     try {
         const supabase = await createClient();
@@ -27,6 +29,11 @@ export async function GET(request) {
 
 export async function POST(request) {
     try {
+        if (!PYTHON_BACKEND_URL) {
+            console.error("PYTHON_BACKEND_URL is not set.");
+            return Response.json({ error: "Backend URL is not configured." }, { status: 500 });
+        }
+
         const supabase = await createClient();
         const { data: { user }, error: authError } = await supabase.auth.getUser();
 
@@ -42,7 +49,7 @@ export async function POST(request) {
 
         // 1. Call FastAPI endpoint
         console.log(`Calling FastAPI backend for question: "${question}"`);
-        const apiResponse = await fetch("http://127.0.0.1:8000/chat", {
+        const apiResponse = await fetch(`${PYTHON_BACKEND_URL}/chat`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
